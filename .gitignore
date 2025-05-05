@@ -70,4 +70,4 @@ build/*
 *.njsproj
 *.sln
 *.sw?
-.env.local
+.env
