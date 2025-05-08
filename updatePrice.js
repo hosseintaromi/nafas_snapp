@@ -1,15 +1,16 @@
-const fs = require("fs");
-const path = require("path");
-const XLSX = require("xlsx");
-const ExcelJS = require("exceljs");
-const axios = require("axios");
-const readline = require("readline");
-const FormData = require("form-data");
-const fetch = require("node-fetch");
-require("dotenv").config(); // Load .env file
+import fs from "fs";
+import path from "path";
+import XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import axios from "axios";
+import readline from "readline";
+import FormData from "form-data";
+import fetch from "node-fetch";
+import dotenv from "dotenv";
+import { NAVASAN_API_URL, SNAPP_API_URL, SNAPP_TOKEN } from "./config/axios.js";
+import { extractWeight, calculateGoldPrice } from "./utils/priceCalculator.js";
 
-const NAVASAN_TOKEN = process.env.NAVASAN_TOKEN;
-const SNAPP_TOKEN = process.env.SNAPP_TOKEN;
+dotenv.config();
 
 // Setup readline interface for input
 const rl = readline.createInterface({
@@ -24,44 +25,13 @@ function question(text) {
   });
 }
 
-// Extract weight from product title
-function extractWeight(title) {
-  const match = title.match(/(\d+[.,]?\d*)\s*گرم/);
-  if (match) {
-    // Replace Persian comma with dot
-    const weightStr = match[1].replace(",", ".");
-    return parseFloat(weightStr);
-  }
-  return null;
-}
-
-// Calculate the price based on weight, gold price, labor and tax percentages
-function calculateGoldPrice(
-  weight,
-  goldPricePerGram,
-  laborPercentage,
-  shopProfitPercentage,
-  taxPercentage
-) {
-  const basePrice = weight * goldPricePerGram;
-  const laborCost = basePrice * (laborPercentage / 100);
-  const subtotal = basePrice + laborCost;
-  const shopProfit = subtotal * (shopProfitPercentage / 100);
-  const subtotalWithProfit = subtotal + shopProfit;
-  const tax = subtotalWithProfit * (taxPercentage / 100);
-  const totalPrice = subtotalWithProfit + tax;
-  return Math.round(totalPrice);
-}
-
 // Get current gold price from API
 async function getGoldPrice() {
-  const url = `http://api.navasan.tech/latest/?api_key=${NAVASAN_TOKEN}`;
-
   try {
-    const response = await axios.get(url);
+    const response = await axios.get(NAVASAN_API_URL);
     const data = response.data;
 
-    // Get 18ayar gold price from API response
+    // Get 18ayar gold price from API response∏
     let goldPrice = 0;
     if (data["18ayar"] && data["18ayar"].value) {
       goldPrice = parseInt(data["18ayar"].value);
@@ -71,6 +41,8 @@ async function getGoldPrice() {
       console.log(
         "❌ خطا در دریافت قیمت طلا از API. از قیمت پیش‌فرض استفاده می‌شود."
       );
+
+      // TODO: get from telegram bot webhook
       const input = await question("قیمت هر گرم طلای 18 عیار (تومان): ");
       goldPrice = parseInt(input);
     } else {
@@ -82,14 +54,15 @@ async function getGoldPrice() {
     return goldPrice;
   } catch (error) {
     console.log(`❌ خطا در اتصال به API: ${error.message}`);
+
+    // TODO: get from telegram bot webhook
     const input = await question("قیمت هر گرم طلای 18 عیار (تومان): ");
     return parseInt(input);
   }
 }
 
 // Main function to update gold prices
-async function updateGoldPrices(filePath) {
-  console.log(filePath);
+async function updateGoldPricesInFile(filePath) {
   try {
     // Get the directory of the current script
     const currentDir = __dirname;
@@ -111,6 +84,11 @@ async function updateGoldPrices(filePath) {
     const worksheet = workbook.Sheets[sheetName];
     const data = XLSX.utils.sheet_to_json(worksheet);
 
+    // TODO:
+    // - add these to Gold entity in postgres
+    // - when a new product is added we must add it to snapp as well using
+    //   snapp api service
+
     const productConfigs = {
       MOv6kw: 16,
       exLEv4: 18,
@@ -121,6 +99,7 @@ async function updateGoldPrices(filePath) {
       dJbV8l: 22,
       X9brx7: 30,
     };
+
     // Calculate new prices
     const newPrices = {};
 
@@ -140,13 +119,13 @@ async function updateGoldPrices(filePath) {
 
       // Calculate new price if weight is available
       if (weight) {
-        const newPrice = calculateGoldPrice(
+        const newPrice = calculateGoldPrice({
           weight,
           goldPricePerGram,
           laborPercentage,
-          7,
-          taxPercentage
-        );
+          shopProfitPercentage: 7,
+          taxPercentage,
+        });
 
         // Store new price
         newPrices[productId] = newPrice;
@@ -222,19 +201,14 @@ async function updateGoldPrices(filePath) {
       }
 
       // Save the updated workbook to a new file
-      const outputFile = await question(
-        "نام فایل خروجی را وارد کنید (با پسوند .xlsx): "
-      );
-      const finalOutputFile = outputFile.endsWith(".xlsx")
-        ? outputFile
-        : `${outputFile}.xlsx`;
+      const finalOutputFile = new Date().toLocaleDateString("fa");
 
       const outputPath = path.join(currentDir, finalOutputFile);
       await workbookExcelJS.xlsx.writeFile(outputPath);
       console.log(`✅ فایل با قیمت‌های به‌روز شده ذخیره شد: ${outputPath}`);
 
-      // Call postNewPrice with the saved file
-      await postNewPrice(outputPath);
+      // Call uploadUpdatedPriceExcel with the saved file
+      await uploadUpdatedPriceExcel(outputPath);
     }
   } catch (error) {
     console.log(`❌ خطا: ${error.message}`);
@@ -244,24 +218,20 @@ async function updateGoldPrices(filePath) {
   }
 }
 
-async function postNewPrice(filePath) {
+async function uploadUpdatedPriceExcel(filePath) {
   try {
     const file = fs.createReadStream(filePath);
     const form = new FormData();
     form.append("file", file);
 
-    const response = await fetch(
-      "https://apix.snappshop.ir/vendors/v1/qPYMMA/inventory/products/excel/import/request",
-      {
-        method: "POST",
-        headers: {
-          ...form.getHeaders(),
-          authorization: SNAPP_TOKEN,
-          "snappshop-seller-code": "qPYMMA",
-        },
-        body: form,
-      }
-    );
+    const response = await axios.post(`${SNAPP_API_URL}/import/request`, {
+      headers: {
+        ...form.getHeaders(),
+        authorization: SNAPP_TOKEN,
+        "snappshop-seller-code": "qPYMMA",
+      },
+      body: form,
+    });
 
     const data = await response.json();
 
@@ -277,36 +247,33 @@ async function postNewPrice(filePath) {
 
 async function requestNewExcelFile() {
   try {
-    const response = await fetch(
-      "https://apix.snappshop.ir/vendors/v1/qPYMMA/inventory/products/excel/export/request",
-      {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "accept-language":
-            "en-GB,en;q=0.9,fa-IR;q=0.8,fa;q=0.7,en-US;q=0.6,zh-CN;q=0.5,zh;q=0.4",
-          authorization: SNAPP_TOKEN,
-          "cache-control": "no-cache",
-          "content-type": "application/json",
-          origin: "https://seller.snappshop.ir",
-          pragma: "no-cache",
-          priority: "u=1, i",
-          referer: "https://seller.snappshop.ir/",
-          "sec-ch-ua":
-            '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
-          "sec-ch-ua-mobile": "?0",
-          "sec-ch-ua-platform": '"macOS"',
-          "sec-fetch-dest": "empty",
-          "sec-fetch-mode": "cors",
-          "sec-fetch-site": "same-site",
-          "snappshop-seller-code": "qPYMMA",
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
-          uuid: "5454933b-3506-450b-8103-2fe61a20d945",
-          "x-client-type": "seller",
-        },
-      }
-    );
+    const response = await fetch(`${SNAPP_API_URL}/export/request`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "accept-language":
+          "en-GB,en;q=0.9,fa-IR;q=0.8,fa;q=0.7,en-US;q=0.6,zh-CN;q=0.5,zh;q=0.4",
+        authorization: SNAPP_TOKEN,
+        "cache-control": "no-cache",
+        "content-type": "application/json",
+        origin: "https://seller.snappshop.ir",
+        pragma: "no-cache",
+        priority: "u=1, i",
+        referer: "https://seller.snappshop.ir/",
+        // "sec-ch-ua":
+        // '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+        // "sec-ch-ua-mobile": "?0",
+        // "sec-ch-ua-platform": '"macOS"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "snappshop-seller-code": "qPYMMA",
+        // "user-agent":
+        //   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+        uuid: "5454933b-3506-450b-8103-2fe61a20d945",
+        "x-client-type": "seller",
+      },
+    });
 
     const data = await response.json();
 
@@ -346,18 +313,15 @@ async function requestNewExcelFile() {
 
 async function checkStatus() {
   try {
-    const response = await axios.get(
-      "https://apix.snappshop.ir/vendors/v1/qPYMMA/inventory/products/excel/export",
-      {
-        headers: {
-          accept: "application/json",
-          "accept-language":
-            "en-GB,en;q=0.9,fa-IR;q=0.8,fa;q=0.7,en-US;q=0.6,zh-CN;q=0.5,zh;q=0.4",
-          authorization: SNAPP_TOKEN,
-          "snappshop-seller-code": "qPYMMA",
-        },
-      }
-    );
+    const response = await axios.get(`${SNAPP_API_URL}/export`, {
+      headers: {
+        accept: "application/json",
+        "accept-language":
+          "en-GB,en;q=0.9,fa-IR;q=0.8,fa;q=0.7,en-US;q=0.6,zh-CN;q=0.5,zh;q=0.4",
+        authorization: SNAPP_TOKEN,
+        "snappshop-seller-code": "qPYMMA",
+      },
+    });
 
     const data = response.data;
 
@@ -390,7 +354,7 @@ async function checkStatus() {
 
       writer.on("finish", () => {
         console.log("File downloaded successfully:", filePath);
-        updateGoldPrices(filePath);
+        updateGoldPricesInFile(filePath);
       });
       writer.on("error", (err) => console.error("Download failed:", err));
     } else {
