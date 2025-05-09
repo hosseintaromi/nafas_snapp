@@ -39,7 +39,10 @@ async function getGoldPrice() {
 
     if (goldPrice === 0) {
       console.log(
-        "❌ خطا در دریافت قیمت طلا از API. از قیمت پیش‌فرض استفاده می‌شود."
+        "❌ Error: Failed to retrieve gold price from API. Using default price."
+      );
+      const input = await question(
+        "⚙️ Enter the price per gram for 18-karat gold (in Tomans): "
       );
 
       // TODO: get from telegram bot webhook
@@ -47,7 +50,7 @@ async function getGoldPrice() {
       goldPrice = parseInt(input);
     } else {
       console.log(
-        `💰 قیمت هر گرم طلای 18 عیار: ${goldPrice.toLocaleString()} تومان (از API)`
+        `💰 Gold price per gram (18-karat): ${goldPrice.toLocaleString()} Toman (from API)`
       );
     }
 
@@ -100,10 +103,11 @@ async function updateGoldPricesInFile(filePath) {
       X9brx7: 30,
     };
 
+
     // Calculate new prices
     const newPrices = {};
 
-    console.log("\n===== محاسبه قیمت‌های جدید =====");
+    console.log("\n===== Calculating New Prices =====");
     for (const row of data) {
       const productId = row["ID"];
       const title = row["عنوان کالا"];
@@ -132,25 +136,25 @@ async function updateGoldPricesInFile(filePath) {
 
         // Display calculation
         console.log(`${title}`);
-        console.log(`   وزن: ${weight} گرم`);
-        console.log(`   درصد اجرت: ${laborPercentage}%`);
-        console.log(`   درصد مالیات: ${taxPercentage}%`);
+        console.log(`   📦 Weight: ${weight} grams`);
+        console.log(`   🛠️ Labor Percentage: ${laborPercentage}%`);
+        console.log(`   💵 Tax Percentage: ${taxPercentage}%`);
 
         if (oldPrice !== undefined) {
-          console.log(`   قیمت قبلی: ${oldPrice.toLocaleString()} تومان`);
-          console.log(`   قیمت جدید: ${newPrice.toLocaleString()} تومان`);
+          console.log(`   💰 Old Price: ${oldPrice.toLocaleString()} Toman`);
+          console.log(`   🆕 New Price: ${newPrice.toLocaleString()} Toman`);
 
           // Calculate difference
           const diff = newPrice - oldPrice;
           const diffPercent = oldPrice !== 0 ? (diff / oldPrice) * 100 : 0;
           const diffSign = diff >= 0 ? "+" : "";
           console.log(
-            `   تغییر: ${diffSign}${diff.toLocaleString()} تومان (${diffSign}${diffPercent.toFixed(
+            `   🔁 Change: ${diffSign}${diff.toLocaleString()} Toman (${diffSign}${diffPercent.toFixed(
               1
             )}%)`
           );
         } else {
-          console.log(`   قیمت جدید: ${newPrice.toLocaleString()} تومان`);
+          console.log(`   🆕 New Price: ${newPrice.toLocaleString()} Toman`);
         }
 
         console.log();
@@ -170,10 +174,10 @@ async function updateGoldPricesInFile(filePath) {
 
     worksheet1.eachRow((row, rowIndex) => {
       row.eachCell((cell, colIndex) => {
-        if (cell.value === "قیمت به تومان") {
+        if (cell.value === "Price (Toman)") {
           priceColIndex = colIndex;
           headerRow = rowIndex;
-        } else if (cell.value === "قیمت بای باکس") {
+        } else if (cell.value === "Price By Box") {
           priceBoxColIndex = colIndex;
         } else if (cell.value === "ID") {
           idColIndex = colIndex;
@@ -205,13 +209,13 @@ async function updateGoldPricesInFile(filePath) {
 
       const outputPath = path.join(currentDir, finalOutputFile);
       await workbookExcelJS.xlsx.writeFile(outputPath);
-      console.log(`✅ فایل با قیمت‌های به‌روز شده ذخیره شد: ${outputPath}`);
+      console.log(`✅ File with updated prices saved: ${outputPath}`);
 
       // Call uploadUpdatedPriceExcel with the saved file
       await uploadUpdatedPriceExcel(outputPath);
     }
   } catch (error) {
-    console.log(`❌ خطا: ${error.message}`);
+    console.log(`❌ Error: ${error.message}`);
     console.error(error.stack);
   } finally {
     rl.close();
@@ -235,13 +239,13 @@ async function uploadUpdatedPriceExcel(filePath) {
 
     const data = await response.json();
 
-    if (response.ok) {
-      console.log("✅ فایل با موفقیت ارسال شد!");
+    if (response.status === 200) {
+      console.log("✅ File has been successfully sent!");
     } else {
-      console.error("❌ خطا در ارسال فایل:", data);
+      console.error("❌ Error sending file:", response.data);
     }
   } catch (error) {
-    console.error("❌ خطا در ارسال فایل:", error.message);
+    console.error("❌ Error sending file:", error.message);
   }
 }
 
@@ -275,37 +279,39 @@ async function requestNewExcelFile() {
       },
     });
 
-    const data = await response.json();
+    const data = response.data;
 
     if (data.status === true) {
-      console.log("درخواست فایل اکسل با موفقیت ثبت شد");
+      console.log("✅ Excel file request has been successfully registered!");
       checkStatus();
       return {
         success: true,
-        message: "درخواست فایل اکسل با موفقیت ثبت شد",
+        message: "Excel file request has been successfully registered!",
         data: data,
       };
     } else if (data.code === 111006) {
-      console.log("شما قبلا یک درخواست ثبت کرده اید. ادامه مراحل بعدی...");
+      console.log(
+        "⚠️ You have already submitted a request. Proceeding to the next steps..."
+      );
       checkStatus();
       return {
         success: true,
-        message: "درخواست قبلا ثبت شده است",
+        message: "Request has already been submitted.",
         data: data,
       };
     } else {
-      console.error("خطا در ثبت درخواست:", data.message);
+      console.error("❌ Error registering the request:", data.message);
       return {
         success: false,
-        message: data.message || "خطای نامشخص",
+        message: data.message || "Unknown error",
         data: data,
       };
     }
   } catch (error) {
-    console.error("خطا در ارتباط با سرور:", error);
+    console.error("❌ Error connecting to the server:", error);
     return {
       success: false,
-      message: "خطا در ارتباط با سرور: " + error.message,
+      message: "Error connecting to the server: " + error.message,
       error: error,
     };
   }
@@ -325,18 +331,16 @@ async function checkStatus() {
 
     const data = response.data;
 
-    console.log(data);
-    if (data.status === true && data.data.status == "processing") {
+    if (data.status === true && data.data.status === "processing") {
       console.log("Wait! I'll check again in 1 minute...");
       setTimeout(() => {
         checkStatus();
       }, 60000);
-    } else if (data.status === true && data.data.status == "processed") {
+    } else if (data.status === true && data.data.status === "processed") {
       console.log("File is ready for download:", data.data.file);
 
-      // دانلود فایل
       const fileUrl = data.data.file;
-      const filePath = path.join(__dirname, "inventory_products.xlsx"); // مسیر فایل در روت پروژه
+      const filePath = path.join(__dirname, "inventory_products.xlsx");
 
       const fileResponse = await axios({
         url: fileUrl,
@@ -345,21 +349,20 @@ async function checkStatus() {
           authorization: SNAPP_TOKEN,
           "snappshop-seller-code": "qPYMMA",
         },
-        responseType: "stream", // نوع پاسخ به‌صورت استریم
+        responseType: "stream",
       });
 
       const writer = fs.createWriteStream(filePath);
-
       fileResponse.data.pipe(writer);
 
       writer.on("finish", () => {
         console.log("File downloaded successfully:", filePath);
         updateGoldPricesInFile(filePath);
       });
+
       writer.on("error", (err) => console.error("Download failed:", err));
     } else {
       console.log("Error checking file status:", data.message);
-
       return {
         success: false,
         message: data.message || "Unknown error",
@@ -383,7 +386,7 @@ main();
 //todos
 //upload file to snapp => done
 //add commition and fee => done
-//change logs to en
-//add telegram hook for gold price and report
-//add auto login for snapp
+//change logs to en => done
 //remove extra question
+//add auto login for snapp
+//add telegram hook for gold price and report
