@@ -7,7 +7,7 @@ const readline = require("readline");
 const FormData = require("form-data");
 const fetch = require("node-fetch");
 require("dotenv").config(); // Load .env file
-const moment = require("moment-jalaali");
+const moment = require("jalali-moment");
 
 const NAVASAN_TOKEN = process.env.NAVASAN_TOKEN;
 const SNAPP_TOKEN = process.env.SNAPP_TOKEN;
@@ -46,11 +46,8 @@ function calculateGoldPrice(
   shopProfitPercentage,
   taxPercentage
 ) {
-  console.log("weight", weight);
+  goldPricePerGram = goldPricePerGram + 200000;
   console.log("goldPricePerGram", goldPricePerGram);
-  console.log("laborPercentage", laborPercentage);
-  console.log("shopProfitPercentage", shopProfitPercentage);
-  console.log("taxPercentage", taxPercentage);
   const basePrice = weight * goldPricePerGram;
   const laborCost = basePrice * (laborPercentage / 100);
   const subtotal = basePrice + laborCost;
@@ -58,7 +55,10 @@ function calculateGoldPrice(
   const subtotalWithProfit = subtotal + shopProfit;
   const tax = subtotalWithProfit * (taxPercentage / 100);
   const totalPrice = subtotalWithProfit + tax;
-  return Math.round(totalPrice);
+  const totalWithSnappPercentage = totalPrice * (4 / 100);
+  const finalPrice = totalPrice + totalWithSnappPercentage;
+
+  return Math.round(finalPrice);
 }
 
 // Get current gold price from API
@@ -204,10 +204,10 @@ async function updateGoldPrices(filePath) {
 
     worksheet1.eachRow((row, rowIndex) => {
       row.eachCell((cell, colIndex) => {
-        if (cell.value === "Price (Toman)") {
+        if (cell.value === "قیمت به تومان") {
           priceColIndex = colIndex;
           headerRow = rowIndex;
-        } else if (cell.value === "Price By Box") {
+        } else if (cell.value === "قیمت بای باکس") {
           priceBoxColIndex = colIndex;
         } else if (cell.value === "ID") {
           idColIndex = colIndex;
@@ -234,13 +234,8 @@ async function updateGoldPrices(filePath) {
         }
       }
 
-      // Save the updated workbook to a new file
-      const outputFile = await question(
-        "📂 Enter the output file name (with .xlsx extension): "
-      );
-      const finalOutputFile = outputFile.endsWith(".xlsx")
-        ? outputFile
-        : `${outputFile}.xlsx`;
+      const today = moment().locale("fa").format("jMMMD");
+      const finalOutputFile = `${outputFile}_${today}.xlsx`;
 
       const outputPath = path.join(currentDir, finalOutputFile);
       await workbookExcelJS.xlsx.writeFile(outputPath);
@@ -331,6 +326,17 @@ async function requestNewExcelFile() {
       };
     }
   } catch (error) {
+    if (data.code === 111006) {
+      console.log(
+        "⚠️ You have already submitted a request. Proceeding to the next steps..."
+      );
+      checkStatus();
+      return {
+        success: true,
+        message: "Request has already been submitted.",
+        data: data,
+      };
+    }
     console.error("❌ Error connecting to the server:", error);
     return {
       success: false,
@@ -339,7 +345,7 @@ async function requestNewExcelFile() {
     };
   }
 }
-
+var tryTime = 0;
 async function checkStatus() {
   try {
     const response = await axios.get(`${SNAPP_URL}excel/export`, {
@@ -353,7 +359,8 @@ async function checkStatus() {
     const data = response.data;
 
     if (data.status === true && data.data.status === "processing") {
-      console.log("Wait! I'll check again in 1 minute...");
+      tryTime++;
+      console.log(`Wait! I'll check again in 1 minute for ${tryTime} time`);
       setTimeout(() => {
         checkStatus();
       }, 60000);
@@ -405,9 +412,6 @@ function main() {
 main();
 
 //todos
-//upload file to snapp => done
-//add commition and fee => done
-//change logs to en => done
 //remove extra question
 //add auto login for snapp
 //add telegram hook for gold price and report
