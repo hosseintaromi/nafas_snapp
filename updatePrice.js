@@ -235,8 +235,8 @@ async function updateGoldPrices(filePath) {
       }
 
       const today = moment().locale("fa").format("jMMMD");
-      const finalOutputFile = `${outputFile}_${today}.xlsx`;
-
+      const finalOutputFile = `updated_prices_${today}.xlsx`;
+      console.log(finalOutputFile);
       const outputPath = path.join(currentDir, finalOutputFile);
       await workbookExcelJS.xlsx.writeFile(outputPath);
       console.log(`✅ File with updated prices saved: ${outputPath}`);
