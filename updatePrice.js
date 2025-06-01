@@ -326,25 +326,25 @@ async function requestNewExcelFile() {
       };
     }
   } catch (error) {
-    if (data.code === 111006) {
-      console.log(
-        "⚠️ You have already submitted a request. Proceeding to the next steps..."
-      );
-      checkStatus();
-      return {
-        success: true,
-        message: "Request has already been submitted.",
-        data: data,
-      };
-    }
-    console.error("❌ Error connecting to the server:", error);
+    // if (data.code === 111006) {
+    //   console.log(
+    //     "⚠️ You have already submitted a request. Proceeding to the next steps..."
+    //   );
+    checkStatus();
     return {
-      success: false,
-      message: "Error connecting to the server: " + error.message,
-      error: error,
+      success: true,
+      message: "Request has already been submitted.",
+      data: data,
     };
   }
+  console.error("❌ Error connecting to the server:", error);
+  return {
+    success: false,
+    message: "Error connecting to the server: " + error.message,
+    error: error,
+  };
 }
+
 var tryTime = 0;
 async function checkStatus() {
   try {
